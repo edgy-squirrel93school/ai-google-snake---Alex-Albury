@@ -1,0 +1,488 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Snake — Alex edition</title>
+<style>
+  :root {
+    --bg: #0f1220;
+    --board: #14182a;
+    --grid: #1c2240;
+    --snake: #64ffda;
+    --snake-head: #a7f3d0;
+    --food: #ff6b6b;
+    --ui: #e6ebf0;
+    --dim: rgba(0,0,0,0.45);
+    --accent: #79c0ff;
+  }
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: radial-gradient(1200px 800px at 30% 10%, #10162a 0%, #0b0f1c 60%, #060912 100%);
+    color: var(--ui);
+    font: 16px/1.4 system-ui, -apple-system, Segoe UI, Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji", "Segoe UI Emoji";
+  }
+  .wrap {
+    max-width: 760px;
+    margin: 24px auto;
+    padding: 0 16px 24px;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 10px;
+  }
+  header h1 {
+    font-size: 22px;
+    margin: 0;
+    letter-spacing: 0.5px;
+    color: var(--accent);
+  }
+  .stats {
+    display: flex;
+    gap: 16px;
+    font-weight: 600;
+  }
+  .stats span { opacity: 0.9; }
+  .board {
+    position: relative;
+    user-select: none;
+    touch-action: manipulation;
+    margin: 8px auto 14px;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: auto;
+    background: var(--board);
+    image-rendering: pixelated;
+    border-radius: 10px;
+    box-shadow:
+      0 8px 24px rgba(0,0,0,0.35),
+      inset 0 0 0 1px rgba(255,255,255,0.04);
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    text-align: center;
+    padding: 20px;
+    background: var(--dim);
+    border-radius: 10px;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 140ms ease;
+  }
+  .overlay.show {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .overlay h2 {
+    margin: 0 0 6px;
+    font-size: 28px;
+  }
+  .overlay p {
+    margin: 6px 0 0;
+    opacity: 0.9;
+  }
+  .controls {
+    display: grid;
+    grid-template-columns: 64px 64px 64px;
+    grid-template-rows: 64px 64px;
+    gap: 10px;
+    width: max-content;
+    margin: 0 auto;
+    opacity: 0.9;
+  }
+  .btn {
+    background: #1a2142;
+    color: var(--ui);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    font-size: 20px;
+    font-weight: 700;
+    cursor: pointer;
+    user-select: none;
+    touch-action: manipulation;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.25),
+                inset 0 0 0 1px rgba(255,255,255,0.03);
+  }
+  .btn:active { transform: translateY(1px); }
+  .btn.invis { visibility: hidden; }
+  .legend {
+    margin-top: 10px;
+    text-align: center;
+    font-size: 13px;
+    opacity: 0.8;
+  }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <h1>Snake — Alex edition</h1>
+      <div class="stats">
+        <span>Score: <strong id="score">0</strong></span>
+        <span>High: <strong id="high">0</strong></span>
+        <span>Speed: <strong id="speed">0</strong></span>
+      </div>
+    </header>
+
+    <div class="board" id="board">
+      <canvas id="game" width="504" height="504" tabindex="0" aria-label="Snake game board"></canvas>
+
+      <div class="overlay show" id="start">
+        <div>
+          <h2>Press any arrow to start</h2>
+          <p>WASD or Arrow Keys • P: Pause • R: Restart</p>
+          <p style="margin-top:8px; font-size:13px; opacity:0.75;">Tip: Toggle wrap walls in code (WRAP = true/false)</p>
+        </div>
+      </div>
+
+      <div class="overlay" id="pause">
+        <div>
+          <h2>Paused</h2>
+          <p>Press P to resume</p>
+        </div>
+      </div>
+
+      <div class="overlay" id="gameover">
+        <div>
+          <h2>Game Over</h2>
+          <p id="final"></p>
+          <p style="margin-top:8px;">Press R to restart</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="controls" aria-label="Mobile controls">
+      <div class="btn invis"></div>
+      <button class="btn" id="up" aria-label="Up">▲</button>
+      <div class="btn invis"></div>
+
+      <button class="btn" id="left" aria-label="Left">◀</button>
+      <button class="btn" id="down" aria-label="Down">▼</button>
+      <button class="btn" id="right" aria-label="Right">▶</button>
+    </div>
+    <div class="legend">Mobile: tap arrows • Desktop: WASD / Arrow Keys</div>
+  </div>
+
+<script>
+(() => {
+  // ---------------------------
+  // Settings (tweak freely)
+  // ---------------------------
+  const GRID = 21;               // grid size (GRID x GRID)
+  const START_SPEED = 7;         // moves per second at start
+  const SPEED_GAIN = 0.45;       // speed increase per food
+  const MAX_SPEED = 20;          // cap speed so it's human-playable
+  const WRAP = true;             // true: wrap around walls; false: walls are deadly
+  const CELL_GAP = 1;            // visual thin gap between cells
+  const STORAGE_KEY = "snakeHighScore_Alex";
+
+  // Colors (CSS variables mirrored in JS for drawing)
+  const COLORS = {
+    bg: getCSS("--board"),
+    grid: getCSS("--grid"),
+    snake: getCSS("--snake"),
+    head: getCSS("--snake-head"),
+    food: getCSS("--food")
+  };
+
+  // ---------------------------
+  // Canvas & responsive sizing
+  // ---------------------------
+  const canvas = document.getElementById("game");
+  const ctx = canvas.getContext("2d");
+  const boardEl = document.getElementById("board");
+
+  function fitCanvas() {
+    // Keep it square and crisp, scale to viewport, keep integer cell size
+    const maxPx = Math.min(window.innerWidth - 32, window.innerHeight - 220, 640);
+    const target = Math.max(360, Math.floor(maxPx));
+    const cell = Math.floor(target / GRID);
+    const size = cell * GRID;
+    canvas.width = size;
+    canvas.height = size;
+    cellSize = cell;
+  }
+
+  let cellSize = 24; // will be set by fitCanvas
+  window.addEventListener("resize", fitCanvas, { passive: true });
+  fitCanvas();
+
+  // ---------------------------
+  // Game state
+  // ---------------------------
+  const scoreEl = document.getElementById("score");
+  const highEl = document.getElementById("high");
+  const speedEl = document.getElementById("speed");
+  const startOv = document.getElementById("start");
+  const pauseOv = document.getElementById("pause");
+  const overOv  = document.getElementById("gameover");
+  const final   = document.getElementById("final");
+
+  let highScore = Number(localStorage.getItem(STORAGE_KEY) || 0);
+  highEl.textContent = highScore;
+
+  let snake, dir, nextDir, food, score, speed, alive, started, paused, acc, stepMs;
+
+  function resetGame() {
+    // Start in center moving right with length 3
+    const mid = Math.floor(GRID / 2);
+    snake = [
+      { x: mid + 1, y: mid }, // head
+      { x: mid,     y: mid },
+      { x: mid - 1, y: mid }
+    ];
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+    food = placeFood();
+    score = 0;
+    speed = START_SPEED;
+    alive = true;
+    paused = false;
+    started = false;
+    acc = 0;
+    stepMs = 1000 / speed;
+    updateUI();
+    showOverlay(startOv);
+    hideOverlay(pauseOv);
+    hideOverlay(overOv);
+  }
+
+  function updateUI() {
+    scoreEl.textContent = score;
+    speedEl.textContent = speed.toFixed(1);
+    highEl.textContent = highScore;
+  }
+
+  function placeFood() {
+    // Place food not on the snake
+    const used = new Set(snake.map(p => `${p.x},${p.y}`));
+    let x, y;
+    do {
+      x = Math.floor(Math.random() * GRID);
+      y = Math.floor(Math.random() * GRID);
+    } while (used.has(`${x},${y}`));
+    return { x, y };
+  }
+
+  function showOverlay(el) { el.classList.add("show"); }
+  function hideOverlay(el) { el.classList.remove("show"); }
+
+  // ---------------------------
+  // Input
+  // ---------------------------
+  const KEYMAP = {
+    ArrowUp: { x: 0, y: -1 },    KeyW: { x: 0, y: -1 },
+    ArrowDown: { x: 0, y: 1 },   KeyS: { x: 0, y: 1 },
+    ArrowLeft: { x: -1, y: 0 },  KeyA: { x: -1, y: 0 },
+    ArrowRight: { x: 1, y: 0 },  KeyD: { x: 1, y: 0 }
+  };
+
+  window.addEventListener("keydown", (e) => {
+    const code = e.code;
+    if (KEYMAP[code]) {
+      e.preventDefault();
+      queueTurn(KEYMAP[code]);
+      if (!started) {
+        started = true;
+        hideOverlay(startOv);
+      }
+    } else if (code === "KeyP" || code === "Space") {
+      e.preventDefault();
+      if (alive && started) togglePause();
+    } else if (code === "KeyR") {
+      e.preventDefault();
+      resetGame();
+    }
+  }, { passive: false });
+
+  function queueTurn(vec) {
+    // Prevent reversing into yourself
+    const cannotReverse = (vec.x === -dir.x && vec.y === -dir.y);
+    if (cannotReverse) return;
+    nextDir = vec;
+  }
+
+  // Mobile buttons
+  [["up",{x:0,y:-1}],["down",{x:0,y:1}],["left",{x:-1,y:0}],["right",{x:1,y:0}]].forEach(([id,vec]) => {
+    document.getElementById(id).addEventListener("click", () => {
+      queueTurn(vec);
+      if (!started) { started = true; hideOverlay(startOv); }
+    });
+  });
+
+  function togglePause() {
+    paused = !paused;
+    if (paused) showOverlay(pauseOv); else hideOverlay(pauseOv);
+  }
+
+  // ---------------------------
+  // Game loop (fixed-step)
+  // ---------------------------
+  let last = performance.now();
+  function loop(now) {
+    const dt = Math.min(100, now - last); // clamp
+    last = now;
+
+    if (alive && started && !paused) {
+      acc += dt;
+      while (acc >= stepMs) {
+        step();
+        acc -= stepMs;
+      }
+    }
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  function step() {
+    // Apply queued direction at most once per step
+    dir = nextDir;
+
+    // Compute next head
+    const head = snake[0];
+    let nx = head.x + dir.x;
+    let ny = head.y + dir.y;
+
+    if (WRAP) {
+      nx = (nx + GRID) % GRID;
+      ny = (ny + GRID) % GRID;
+    } else {
+      if (nx < 0 || nx >= GRID || ny < 0 || ny >= GRID) {
+        return die();
+      }
+    }
+
+    // Check self collision (use new head against body)
+    for (let i = 0; i < snake.length; i++) {
+      if (snake[i].x === nx && snake[i].y === ny) return die();
+    }
+
+    // Move: add new head
+    snake.unshift({ x: nx, y: ny });
+
+    // Food?
+    if (nx === food.x && ny === food.y) {
+      score++;
+      // Speed up
+      speed = Math.min(MAX_SPEED, speed + SPEED_GAIN);
+      stepMs = 1000 / speed;
+      food = placeFood();
+      if (score > highScore) {
+        highScore = score;
+        localStorage.setItem(STORAGE_KEY, String(highScore));
+      }
+      updateUI();
+    } else {
+      // Trim tail
+      snake.pop();
+    }
+  }
+
+  function die() {
+    alive = false;
+    final.textContent = `Final score: ${score}`;
+    showOverlay(overOv);
+  }
+
+  // ---------------------------
+  // Rendering
+  // ---------------------------
+  function draw() {
+    const size = canvas.width;
+    const cs = cellSize;
+
+    // Clear
+    ctx.fillStyle = COLORS.bg;
+    ctx.fillRect(0, 0, size, size);
+
+    // Grid
+    ctx.fillStyle = COLORS.grid;
+    for (let y = 0; y < GRID; y++) {
+      for (let x = 0; x < GRID; x++) {
+        const px = x * cs, py = y * cs;
+        ctx.fillRect(px, py, cs - CELL_GAP, cs - CELL_GAP);
+      }
+    }
+
+    // Food
+    drawCell(food.x, food.y, COLORS.food, 6);
+
+    // Snake body
+    for (let i = snake.length - 1; i >= 1; i--) {
+      const s = snake[i];
+      drawCell(s.x, s.y, COLORS.snake, 4);
+    }
+
+    // Snake head
+    const h = snake[0];
+    drawCell(h.x, h.y, COLORS.head, 2);
+    drawEyes(h, dir);
+  }
+
+  function drawCell(x, y, color, inset = 0) {
+    const cs = cellSize;
+    const px = x * cs + inset;
+    const py = y * cs + inset;
+    const s = cs - inset * 2 - CELL_GAP;
+    ctx.fillStyle = color;
+    ctx.fillRect(px, py, s, s);
+    // Subtle shine
+    ctx.globalAlpha = 0.06;
+    ctx.fillStyle = "#ffffff";
+    ctx.fillRect(px, py, s, Math.max(2, s * 0.18));
+    ctx.globalAlpha = 1;
+  }
+
+  function drawEyes(head, d) {
+    const cs = cellSize;
+    const baseX = head.x * cs;
+    const baseY = head.y * cs;
+    const r = Math.max(2, Math.floor(cs * 0.12));
+    const offset = Math.floor(cs * 0.22);
+    ctx.fillStyle = "#0b0f1c";
+
+    if (d.x === 1) { // right
+      circle(baseX + cs - offset, baseY + offset, r);
+      circle(baseX + cs - offset, baseY + cs - offset, r);
+    } else if (d.x === -1) { // left
+      circle(baseX + offset, baseY + offset, r);
+      circle(baseX + offset, baseY + cs - offset, r);
+    } else if (d.y === 1) { // down
+      circle(baseX + offset, baseY + cs - offset, r);
+      circle(baseX + cs - offset, baseY + cs - offset, r);
+    } else { // up
+      circle(baseX + offset, baseY + offset, r);
+      circle(baseX + cs - offset, baseY + offset, r);
+    }
+  }
+
+  function circle(x, y, r) {
+    ctx.beginPath();
+    ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function getCSS(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // Kick off
+  resetGame();
+  requestAnimationFrame(loop);
+
+  // Focus for keyboard input (clicking the canvas brings focus, but do it by default)
+  setTimeout(() => canvas.focus(), 0);
+})();
+</script>
+</body>
+</html>
